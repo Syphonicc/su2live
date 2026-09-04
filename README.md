@@ -10,22 +10,8 @@ usually means waiting for the run to finish and then plotting `history.csv`.
 `su2live` plots the residuals as they are written, and says what it thinks is
 happening.
 
-```
-turb_SST_flatplate.cfg    iter 2,599    target -12
-    8.35 │
-         │⠑⠢⢄
-         │   ⠉⠒⠤⡀
-         │      ⠈⠑⠢⢄⡀
-         │⠢⢄       ⠈⠉⠒⠤⣀⡀
-   -2.12 │⠑⠢⣀ ⠉⠒⠤⣈⠑⠢⠬⣉⠒⠤⢄⡀ ⠉⠑⠒⠤⢄⣀
-         │   ⠑⠢⢄⡀   ⠉⠒⠤⣀⡉⠒⠢⠬⣉⠒⠢⠤⣀⡀
-         │      ⠈⠑⠢⢄⡀   ⠈⠑⠒⠤⣀⡉⠑⠒⠤⢌⣉⡒⠒⠤⢄⣀⡀
-  -12.60 │
-         └────────────────────────────────────────────
-          0                                       2599
-          █ Rho -11.649  █ RhoU -8.949  █ RhoV -9.849
-          converging  -1.014 dec/1k  ~346 iters to -12   65 it/s   ~5s
-```
+![su2live running a case](docs/screenshot-live.png)
+
 
 Pure Python, no dependencies, works over SSH.
 
@@ -96,6 +82,8 @@ Selecting also rescales the vertical axis to the chosen series, which matters
 when one residual sits several decades away from the rest and flattens
 everything else.
 
+![plotting a subset of residuals](docs/screenshot-select.png)
+
 Alongside the plot it reports:
 
 - **converging** with the rate in decades per 1000 iterations, and an estimate
@@ -105,6 +93,8 @@ Alongside the plot it reports:
   is easy to mistake for slow convergence over a short window
 - **frozen** when the residual stops changing to floating point precision
 - **diverging** before the solver gives up on it
+
+![diagnostics on a stalled run](docs/screenshot-frozen.png)
 
 The last three are the ones worth catching early. A case that has settled into
 a cycle at -7 will still be at -7 in forty thousand iterations, and it does not
