@@ -86,6 +86,36 @@ class Screen:
         self.prev_lines = len(lines)
 
 
+class Pace:
+    """Measures solver speed from rows seen since monitoring began.
+
+    Attaching to an existing history file must not charge its old rows to the
+    time since attach, so the count starts at whatever was already there.
+    """
+
+    def __init__(self):
+        self.t0 = None
+        self.n0 = None
+        self.last_n = 0
+
+    def update(self, n_rows: int) -> None:
+        if self.n0 is None:
+            self.n0 = n_rows
+            self.t0 = time.time()
+        elif n_rows > self.last_n and self.t0 is None:
+            self.t0 = time.time()
+        self.last_n = n_rows
+
+    def per_iter(self):
+        if self.t0 is None or self.n0 is None:
+            return None
+        new_rows = self.last_n - self.n0
+        elapsed = time.time() - self.t0
+        if new_rows < 5 or elapsed < 1.0:
+            return None
+        return elapsed / new_rows
+
+
 def build_frame(hist, title, target, tail, window, started, size,
                 max_height=None, only=None):
     series, xs = hist.window(window, only)
@@ -102,14 +132,14 @@ def build_frame(hist, title, target, tail, window, started, size,
     diag = an.analyse(xs, primary[1], target)
     line = an.summary_line(diag, primary[1][-1], target)
 
-    elapsed = time.time() - started
-    if hist.iters and elapsed > 1:
-        per_iter = elapsed / max(len(hist.iters), 1)
-        rate = f"{1 / per_iter:.0f} it/s" if per_iter > 0 else ""
+    per_iter = started.per_iter() if isinstance(started, Pace) else None
+    if per_iter:
+        bits = [f"{1 / per_iter:.0f} it/s"]
         if diag.eta:
             eta_t = an.fmt_eta_seconds(diag.eta, per_iter)
-            rate = f"{rate}   {eta_t}" if eta_t else rate
-        line = f"{line}   {cv.DIM}{rate}{cv.RESET}"
+            if eta_t:
+                bits.append(eta_t)
+        line = f"{line}   {cv.DIM}{'   '.join(bits)}{cv.RESET}"
     notes.append(line)
 
     head = f"{title}    iter {hist.iters[-1]:,}"
@@ -128,19 +158,20 @@ def build_frame(hist, title, target, tail, window, started, size,
 def run_follow(path, interval, window, target, inline=True, height=None,
                only=None):
     hist = ps.History(path)
-    started = time.time()
+    pace = Pace()
     max_height = height or (14 if inline else 26)
     with Screen(inline=inline) as screen:
         try:
             last = 0.0
             while True:
                 hist.poll()
+                pace.update(len(hist.iters))
                 now = time.time()
                 if now - last >= interval:
                     size = shutil.get_terminal_size((100, 30))
                     screen.draw(build_frame(
                         hist, os.path.basename(path), target, [], window,
-                        started, size, max_height, only))
+                        pace, size, max_height, only))
                     last = now
                 time.sleep(min(interval / 3, 0.15))
         except KeyboardInterrupt:
@@ -169,7 +200,7 @@ def run_wrap(exe, cfg, interval, window, tail_lines, inline=True,
 
     hist = ps.History(hist_file)
     tail: list[str] = []
-    started = time.time()
+    pace = Pace()
     max_height = height or (14 if inline else 26)
     title = os.path.basename(cfg)
 
@@ -183,12 +214,13 @@ def run_wrap(exe, cfg, interval, window, tail_lines, inline=True,
                     if tail_lines and len(tail) > tail_lines:
                         del tail[:-tail_lines]
                 hist.poll()
+                pace.update(len(hist.iters))
                 now = time.time()
                 if now - last >= interval:
                     size = shutil.get_terminal_size((100, 30))
                     screen.draw(build_frame(
                         hist, title, target, tail[-tail_lines:] if tail_lines
-                        else [], window, started, size, max_height, only))
+                        else [], window, pace, size, max_height, only))
                     last = now
             proc.wait()
         except KeyboardInterrupt:

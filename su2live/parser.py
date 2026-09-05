@@ -23,7 +23,11 @@ class History:
         self.keep: list[tuple[int, str]] = []
         self.iters: list[int] = []
         self.cols: dict[str, list[float]] = {}
-        self.iter_index = 2  # Inner_Iter, corrected once a header is seen
+        self.iter_index = 2       # Inner_Iter, corrected once a header is seen
+        self.iter_name = "Inner_Iter"
+        self.candidates: dict[str, int] = {}
+        self.alt: dict[str, list[int]] = {}
+        self._x_checked = False
 
     # -------------------------------------------------------------- header
 
@@ -39,10 +43,20 @@ class History:
         ]
         for _, name in self.keep:
             self.cols.setdefault(name, [])
+        # Inner_Iter restarts every physical time step, so for unsteady runs
+        # it is not a usable x axis. Prefer Time_Iter when the run is unsteady;
+        # detected below once we have seen enough rows to tell.
+        self.candidates = {
+            name: fields.index(name)
+            for name in ("Inner_Iter", "Time_Iter", "Outer_Iter")
+            if name in fields
+        }
         for cand in ("Inner_Iter", "Time_Iter", "Outer_Iter"):
-            if cand in fields:
-                self.iter_index = fields.index(cand)
+            if cand in self.candidates:
+                self.iter_index = self.candidates[cand]
+                self.iter_name = cand
                 break
+        self._x_checked = False
 
     # ---------------------------------------------------------------- read
 
@@ -81,6 +95,8 @@ class History:
                 continue
             if self._append_row(line):
                 added += 1
+        if added:
+            self._maybe_switch_axis()
         return added
 
     def _append_row(self, line: str) -> bool:
@@ -95,10 +111,49 @@ class History:
                 values[name] = float(parts[idx])
             except (IndexError, ValueError):
                 return False
-        self.iters.append(it)
+        self.iters.append(len(self.iters) if self.iter_name == "row" else it)
+        # Track the other counter columns until we know the axis is sound,
+        # so a switch does not need to reread the file.
+        if not self._x_checked:
+            for name, idx in self.candidates.items():
+                try:
+                    self.alt.setdefault(name, []).append(int(float(parts[idx])))
+                except (IndexError, ValueError):
+                    pass
         for name, v in values.items():
             self.cols[name].append(v)
         return True
+
+    def _maybe_switch_axis(self) -> None:
+        """Swap to a monotonic counter if the current one repeats.
+
+        Steady runs increment Inner_Iter throughout. Unsteady runs reset it
+        each time step, giving a constant column or a sawtooth, so switch to
+        Time_Iter, or to the row number if that is no better.
+        """
+        if self._x_checked or len(self.iters) < 30:
+            return
+        self._x_checked = True
+        if all(b >= a for a, b in zip(self.iters, self.iters[1:])) \
+                and len(set(self.iters)) > 1:
+            self.alt.clear()
+            return                      # already monotonic, nothing to do
+        # Rebuild the axis from data already held rather than rereading the
+        # file: the read position has moved on and resetting would drop
+        # everything collected so far.
+        for name in ("Time_Iter", "Outer_Iter"):
+            idx = self.candidates.get(name)
+            if idx is not None and name != self.iter_name and self.alt:
+                col = self.alt.get(name)
+                if col and len(set(col)) > 1:
+                    self.iter_name = name
+                    self.iter_index = idx
+                    self.iters[:] = col
+                    self.alt.clear()
+                    return
+        self.iter_name = "row"          # fall back to row number
+        self.iters[:] = list(range(len(self.iters)))
+        self.alt.clear()
 
     def reset(self) -> None:
         self.pos = 0
@@ -107,6 +162,8 @@ class History:
         self.keep = []
         self.iters.clear()
         self.cols.clear()
+        self.alt.clear()
+        self._x_checked = False
 
     # ------------------------------------------------------------- helpers
 

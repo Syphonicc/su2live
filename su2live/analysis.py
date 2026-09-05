@@ -57,12 +57,33 @@ def slope(xs, ys) -> float:
 def analyse(iters, values, target=None, window=None) -> Diagnosis:
     """Classify recent behaviour of one residual series."""
     n = len(values)
-    if n < 20:
+
+    # A blown up run writes nan into the history file, and float("nan")
+    # parses happily, so drop non-finite samples before anything else.
+    # Their presence is itself the diagnosis.
+    if n and not math.isfinite(values[-1]):
+        return Diagnosis(DIVERGING, 0.0, None,
+                         "residual is not finite (nan or inf)")
+
+    clean = [(x, y) for x, y in zip(iters, values) if math.isfinite(y)]
+    if len(clean) < 20:
         return Diagnosis(UNKNOWN, 0.0, None)
+    if len(clean) < n:
+        # finite now but nan earlier: report on what we can still read
+        iters = [x for x, _ in clean]
+        values = [y for _, y in clean]
+        n = len(values)
 
     window = window or max(20, min(n // 3, 2000))
-    xs = iters[-window:]
+    xs = list(iters[-window:])
     ys = values[-window:]
+
+    # Unsteady runs reuse the iteration counter every physical time step, so
+    # x is either constant or a sawtooth. Neither describes progress, and a
+    # least squares fit against them is meaningless. Fall back to position in
+    # the series, which is monotonic by construction.
+    if len(set(xs)) < 2 or any(b < a for a, b in zip(xs, xs[1:])):
+        xs = list(range(len(ys)))
 
     span = max(ys) - min(ys)
 
@@ -95,8 +116,16 @@ def analyse(iters, values, target=None, window=None) -> Diagnosis:
         long_ys = values[-window * 3:]
         long_span = max(long_ys) - min(long_ys)
         long_net = abs(long_ys[-1] - long_ys[0])
-        if long_span > 0.3 and long_net < long_span * 0.35:
-            level = sum(long_ys) / len(long_ys)
+        level = sum(long_ys) / len(long_ys)
+        # Crossing the mean repeatedly is the signature of an oscillation.
+        # Comparing endpoints alone is not enough: a window ending part way
+        # up a limb shows a large net change despite going nowhere.
+        long_cross = sum(
+            1 for a, b in zip(long_ys, long_ys[1:])
+            if (a - level) * (b - level) < 0
+        )
+        if long_span > 0.3 and (long_cross >= 2
+                                or long_net < long_span * 0.35):
             return Diagnosis(
                 CYCLING, m, None,
                 f"oscillating +/-{long_span / 2:.2f} about {level:.2f}")

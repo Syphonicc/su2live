@@ -101,6 +101,22 @@ a cycle at -7 will still be at -7 in forty thousand iterations, and it does not
 look any different from slow convergence if you are watching a single number
 scroll past.
 
+## Unsteady runs
+
+`Inner_Iter` restarts every physical time step, so on an unsteady run it is
+either constant or a sawtooth and cannot be used as a horizontal axis. The
+column set is checked once enough rows have arrived, and the plot falls back to
+`Time_Iter`, or to the row number, whichever is monotonic.
+
+## Tests
+
+```bash
+python tests/test_su2live.py
+```
+
+Covers the convergence classifications, `nan` handling, unsteady axis
+selection, and incremental reading.
+
 ## Notes
 
 The history file is read rather than the solver's stdout, because
