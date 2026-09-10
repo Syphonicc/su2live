@@ -18,15 +18,34 @@ Pure Python, no dependencies, works over SSH.
 ## Install
 
 ```bash
+pipx install su2live
+```
+
+`pipx` keeps the tool in its own environment, so a system Python upgrade
+won't break it. Plain `pip` works too:
+
+```bash
 pip install su2live
 ```
 
-or from a clone:
+or from a clone, for development:
 
 ```bash
 git clone https://github.com/Syphonicc/su2live
 cd su2live && pip install -e .
 ```
+
+### If `su2live` stops working after a system update
+
+`ModuleNotFoundError: No module named 'su2live'` usually means your distro
+moved to a new Python version and the old install is stranded in the previous
+version's `site-packages`. Reinstall:
+
+```bash
+pip install --force-reinstall su2live
+```
+
+Editable installs need `pip install -e .` again from the clone.
 
 ## Use
 
